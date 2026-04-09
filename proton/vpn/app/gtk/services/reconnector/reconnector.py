@@ -19,6 +19,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with ProtonVPN.  If not, see <https://www.gnu.org/licenses/>.
 """
+
 import random
 from typing import Optional
 
@@ -27,8 +28,11 @@ from proton.vpn.core.refresher import VPNDataRefresher
 
 from proton.vpn import logging
 from proton.vpn.connection import states, VPNConnection, events
-from proton.vpn.connection.exceptions import VPNConnectionError, \
-    AuthenticationError, HardJailedTwoFAError
+from proton.vpn.connection.exceptions import (
+    VPNConnectionError,
+    AuthenticationError,
+    HardJailedTwoFAError,
+)
 from proton.vpn.core.connection import VPNConnector
 
 from proton.vpn.app.gtk.services.reconnector.network_monitor import NetworkMonitor
@@ -51,15 +55,19 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
     process and will run its own main loop.
     """
 
+    MAX_RETRY_COUNT = 10
+    MAX_RETRY_DELAY_MS = 300_000
+    MIN_RETRY_DELAY_MS = 2_000
+
     # pylint: disable=too-many-arguments
     def __init__(
-            self,
-            vpn_connector: VPNConnector,
-            vpn_data_refresher: VPNDataRefresher,
-            vpn_monitor: VPNMonitor,
-            network_monitor: NetworkMonitor,
-            session_monitor: SessionMonitor,
-            async_executor: AsyncExecutor
+        self,
+        vpn_connector: VPNConnector,
+        vpn_data_refresher: VPNDataRefresher,
+        vpn_monitor: VPNMonitor,
+        network_monitor: NetworkMonitor,
+        session_monitor: SessionMonitor,
+        async_executor: AsyncExecutor,
     ):
         self._vpn_connector = vpn_connector
         self._vpn_data_refresher = vpn_data_refresher
@@ -113,9 +121,10 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
         """
         Returns True if a VPN reconnection is possible or False otherwise.
         """
-        return (
-            isinstance(self._vpn_connector.current_state, states.Error)
-            and not isinstance(self._vpn_connector.current_state.context.event, events.AuthDenied)
+        return isinstance(
+            self._vpn_connector.current_state, states.Error
+        ) and not isinstance(
+            self._vpn_connector.current_state.context.event, events.AuthDenied
         )
 
     def schedule_reconnection(self) -> bool:
@@ -130,10 +139,18 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
             logger.warning("There is already a scheduled VPN reconnection attempt.")
             return False
 
+        if self.retry_counter >= self.MAX_RETRY_COUNT:
+            logger.warning(
+                f"Max retry count ({self.MAX_RETRY_COUNT}) reached. "
+                "Giving up reconnection."
+            )
+            return False
+
         retry_delay = self._calculate_retry_delay_in_milliseconds()
         logger.info(
             f"Reconnection attempt #{self.retry_counter} scheduled in "
-            f"{retry_delay/1000:.2f} seconds.")
+            f"{retry_delay / 1000:.2f} seconds."
+        )
         self._retry_src_id = GLib.timeout_add(retry_delay, self._reconnect)
         return True
 
@@ -146,14 +163,16 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
 
         event = self._vpn_connector.current_state.context.event
         if isinstance(event, events.AuthDenied):
-            raise AuthenticationError("Reconnection not possible due to authentication error.")
+            raise AuthenticationError(
+                "Reconnection not possible due to authentication error."
+            )
 
-        raise VPNConnectionError(f"Reconnection not possible due to unexpected event: {event}")
+        raise VPNConnectionError(
+            f"Reconnection not possible due to unexpected event: {event}"
+        )
 
     def _on_two_fa_required(self):
-        raise HardJailedTwoFAError(
-            "Two factor authentication required to reconnect."
-        )
+        raise HardJailedTwoFAError("Two factor authentication required to reconnect.")
 
     def _on_session_unlocked(self):
         """
@@ -161,7 +180,6 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
         unlocked.
         """
         logger.info("Session unlocked.")
-        self._reset_retry_counter()
 
         if not self.did_vpn_drop:
             logger.debug("VPN reconnection not necessary: connection didn't drop.")
@@ -171,7 +189,12 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
             logger.debug("VPN reconnection not possible: fatal connection error.")
             return
 
-        self.schedule_reconnection()
+        if self.retry_counter < self.MAX_RETRY_COUNT:
+            self.schedule_reconnection()
+        else:
+            logger.warning(
+                "Session unlocked but max retry count reached, not scheduling reconnection."
+            )
 
     def _on_network_up(self):
         """
@@ -180,7 +203,6 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
         the internet.
         """
         logger.info("Network connectivity was detected.")
-        self._reset_retry_counter()
 
         if not self.did_vpn_drop:
             logger.debug("VPN reconnection not necessary: connection didn't drop.")
@@ -190,7 +212,12 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
             logger.debug("VPN reconnection not possible: fatal connection error.")
             return
 
-        self.schedule_reconnection()
+        if self.retry_counter < self.MAX_RETRY_COUNT:
+            self.schedule_reconnection()
+        else:
+            logger.warning(
+                "Network is up but max retry count reached, not scheduling reconnection."
+            )
 
     def _on_vpn_drop(self, event: events.Event):
         """Callback called by the VPN monitor when a VPN connection drop was detected."""
@@ -249,7 +276,7 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
                 self._vpn_connector.connect,
                 vpn_server,
                 connection.protocol,
-                connection.backend
+                connection.backend,
             )
             future.add_done_callback(lambda f: GLib.idle_add(f.result))
             self._increase_retry_counter()
@@ -275,10 +302,12 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
         Returns the amount of milliseconds to wait before a VPN connection retry.
 
         The amount of time increases exponentially based on the number of
-        previous attempts.
+        previous attempts, capped at MAX_RETRY_DELAY_MS.
         """
-        return (2 ** self.retry_counter *
-                random.uniform(0.9, 1.1) * 1000)  # nosec B311 # noqa: E501 # pylint: disable=line-too-long # nosemgrep: gitlab.bandit.B311
+        raw_delay = 2**self.retry_counter * random.uniform(0.9, 1.1) * 1000  # nosec B311 # noqa: E501 # pylint: disable=line-too-long # nosemgrep: gitlab.bandit.B311
+        return int(
+            min(max(raw_delay, self.MIN_RETRY_DELAY_MS), self.MAX_RETRY_DELAY_MS)
+        )
 
     def _reset_retry_counter(self):
         if self._retry_src_id:
