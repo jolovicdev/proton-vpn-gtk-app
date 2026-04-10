@@ -19,6 +19,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with ProtonVPN.  If not, see <https://www.gnu.org/licenses/>.
 """
+
 from typing import Optional
 from os import environ
 from gi.repository import GLib, Gio
@@ -48,7 +49,8 @@ class TrayIndicatorNotSupported(Exception):
 
 
 class GnomeTrayDetection:
-    """Handles detection of gnome environment and required tray dependencies """
+    """Handles detection of gnome environment and required tray dependencies"""
+
     def is_gnome_shell_running(self) -> bool:
         """Checks if gnome shell is running.
         Flatpaks can't list gnome shell extensions by default,
@@ -61,7 +63,9 @@ class GnomeTrayDetection:
         current_desktop_environment = environ.get("XDG_CURRENT_DESKTOP", "").lower()
         return "gnome" in current_desktop_environment
 
-    def _gnome_shell_list_extensions(self, timeout_ms: int = 300) -> Optional[dict[str, dict]]:
+    def _gnome_shell_list_extensions(
+        self, timeout_ms: int = 300
+    ) -> Optional[dict[str, dict]]:
         try:
             bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
             proxy = Gio.DBusProxy.new_sync(
@@ -74,11 +78,7 @@ class GnomeTrayDetection:
                 None,
             )
             value = proxy.call_sync(
-                "ListExtensions",
-                None,
-                Gio.DBusCallFlags.NONE,
-                timeout_ms,
-                None
+                "ListExtensions", None, Gio.DBusCallFlags.NONE, timeout_ms, None
             )
             data = value.unpack()
             return data[0] if isinstance(data, tuple) else data
@@ -112,31 +112,22 @@ class TrayIndicator:
         thus before displaying the buttons we check if user is logged in or not,
         see `_on_connection_disconnected` for implementation details.
     """
+
     DISCONNECTED_ICON = str(
         ICONS_PATH / f"state-{states.Disconnected.__name__.lower()}.svg"
     )
-    DISCONNECTED_ICON_DESCRIPTION = str(
-        f"VPN {states.Disconnected.__name__.lower()}"
-    )
-    CONNECTED_ICON = str(
-        ICONS_PATH / f"state-{states.Connected.__name__.lower()}.svg"
-    )
-    CONNECTED_ICON_DESCRIPTION = str(
-        f"VPN {states.Connected.__name__.lower()}"
-    )
-    ERROR_ICON = str(
-        ICONS_PATH / f"state-{states.Error.__name__.lower()}.svg"
-    )
-    ERROR_ICON_DESCRIPTION = str(
-        f"VPN {states.Error.__name__.lower()}"
-    )
+    DISCONNECTED_ICON_DESCRIPTION = str(f"VPN {states.Disconnected.__name__.lower()}")
+    CONNECTED_ICON = str(ICONS_PATH / f"state-{states.Connected.__name__.lower()}.svg")
+    CONNECTED_ICON_DESCRIPTION = str(f"VPN {states.Connected.__name__.lower()}")
+    ERROR_ICON = str(ICONS_PATH / f"state-{states.Error.__name__.lower()}.svg")
+    ERROR_ICON_DESCRIPTION = str(f"VPN {states.Error.__name__.lower()}")
 
     def __init__(
         self,
         controller: Controller,
         tray_icon=None,
         app_indicator_available=False,
-        gnome_tray_detection=GnomeTrayDetection()
+        gnome_tray_detection=GnomeTrayDetection(),
     ):
         self._tray = tray_icon
         self._main_window: Optional[MainWindow] = None
@@ -169,7 +160,9 @@ class TrayIndicator:
         # If gnome shell is not running then it's another DE and
         # we assume tray works by default.
         if self._gnome_tray_detection.is_gnome_shell_running():
-            self._app_indicator_available |= self._gnome_tray_detection.is_extension_active()
+            self._app_indicator_available |= (
+                self._gnome_tray_detection.is_extension_active()
+            )
         else:
             self._app_indicator_available = True
             logger.warning("Tray icon enabled on an unsupported desktop environment")
@@ -201,7 +194,7 @@ class TrayIndicator:
 
     def reload_pinned_servers(self):
         """Reloads pinned servers.
-            Useful to use when the list is changed from the outside.
+        Useful to use when the list is changed from the outside.
         """
         self._update()
 
@@ -222,7 +215,9 @@ class TrayIndicator:
         self._tray.update_menu()
 
     def _setup_pinned_server_entries(self):
-        tray_pinned_servers = self._controller.get_app_configuration().tray_pinned_servers
+        tray_pinned_servers = (
+            self._controller.get_app_configuration().tray_pinned_servers
+        )
         if not tray_pinned_servers or not self.display_pinned_servers:
             return
 
@@ -230,24 +225,42 @@ class TrayIndicator:
             servername = str(server).upper()
             self._tray.add_menu_item(
                 label=f"{servername}",
-                callback=lambda server=servername: self._on_connect_to_pinned_entry_clicked(server))
+                callback=lambda server=servername: (
+                    self._on_connect_to_pinned_entry_clicked(server)
+                ),
+            )
 
         self._tray.add_menu_separator()
 
     def _setup_connection_handler_entries(self):
-        self._tray.add_menu_item("Quick Connect",
-                                 self._on_connect_entry_clicked,
-                                 self.enable_connect_entry,
-                                 self.display_connect_entry)
-        self._tray.add_menu_item("Disconnect",
-                                 self._on_disconnect_entry_clicked,
-                                 self.enable_disconnect_entry,
-                                 self.display_disconnect_entry)
+        self._tray.add_menu_item(
+            "Quick Connect",
+            self._on_connect_entry_clicked,
+            self.enable_connect_entry,
+            self.display_connect_entry,
+        )
+        self._tray.add_menu_item(
+            "Disconnect",
+            self._on_disconnect_entry_clicked,
+            self.enable_disconnect_entry,
+            self.display_disconnect_entry,
+        )
 
     def _setup_main_window_visibility_toggle_entry(self):
-        toggle_label = "Show" if not self._main_window.get_visible() else "Hide"
-        self._tray.add_menu_item(toggle_label,
-                                 self._on_toggle_app_visibility_menu_entry_clicked)
+        toggle_label = "Hide" if self._main_window.get_visible() else "Show"
+        self._tray.add_menu_item(
+            toggle_label, self._on_toggle_app_visibility_menu_entry_clicked
+        )
+        self._main_window.connect("notify::visible", self._on_window_visibility_changed)
+
+    def _on_window_visibility_changed(self, window, _param):
+        new_label = "Hide" if window.get_visible() else "Show"
+        for item in self._tray.menu_items:
+            if item.callback == self._on_toggle_app_visibility_menu_entry_clicked:
+                if item.label != new_label:
+                    item.label = new_label
+                    self._tray.update_menu()
+                break
 
     def _setup_quit_entry(self):
         self._tray.add_menu_item("Quit", self._on_exit_app_menu_entry_clicked)
@@ -258,13 +271,16 @@ class TrayIndicator:
     def _on_connect_to_pinned_entry_clicked(self, servername: str):
         logger.info(f"Connect to {servername}", category="ui.tray", event="connect")
         future = self._controller.connect_from_tray(servername)
-        future.add_done_callback(lambda f: GLib.idle_add(f.result))  # bubble up exceptions if any.
+        future.add_done_callback(
+            lambda f: GLib.idle_add(f.result)
+        )  # bubble up exceptions if any.
 
     def _on_toggle_app_visibility_menu_entry_clicked(self, *_):
         if self._main_window.get_visible():
             self._main_window.set_visible(False)
         else:
             self._main_window.set_visible(True)
+            self._main_window.unminimize()
             self._main_window.present()
         self._update()
 
@@ -274,12 +290,16 @@ class TrayIndicator:
     def _on_connect_entry_clicked(self):
         logger.info("Connect to fastest server", category="ui.tray", event="connect")
         future = self._controller.connect_to_fastest_server()
-        future.add_done_callback(lambda f: GLib.idle_add(f.result))  # bubble up exceptions if any.
+        future.add_done_callback(
+            lambda f: GLib.idle_add(f.result)
+        )  # bubble up exceptions if any.
 
     def _on_disconnect_entry_clicked(self):
         logger.info("Disconnect from VPN", category="ui.tray", event="disconnect")
         future = self._controller.disconnect()
-        future.add_done_callback(lambda f: GLib.idle_add(f.result))  # bubble up exceptions if any.
+        future.add_done_callback(
+            lambda f: GLib.idle_add(f.result)
+        )  # bubble up exceptions if any.
 
     def _on_user_logged_in(self, *_):
         self.display_disconnect_entry = False
@@ -295,8 +315,9 @@ class TrayIndicator:
 
     def _on_connection_disconnected(self):
         self.enable_connect_entry = True
-        self._tray.change_icon(self.DISCONNECTED_ICON,
-                               self.DISCONNECTED_ICON_DESCRIPTION)
+        self._tray.change_icon(
+            self.DISCONNECTED_ICON, self.DISCONNECTED_ICON_DESCRIPTION
+        )
         if not self._controller.user_logged_in:
             self._update()
             return
@@ -314,8 +335,7 @@ class TrayIndicator:
         self.enable_disconnect_entry = True
         self.display_disconnect_entry = True
         self.display_connect_entry = False
-        self._tray.change_icon(self.CONNECTED_ICON,
-                               self.CONNECTED_ICON_DESCRIPTION)
+        self._tray.change_icon(self.CONNECTED_ICON, self.CONNECTED_ICON_DESCRIPTION)
         self._update()
 
     def _on_connection_disconnecting(self):
@@ -326,8 +346,7 @@ class TrayIndicator:
     def _on_connection_error(self):
         self.display_disconnect_entry = False
         self.display_connect_entry = True
-        self._tray.change_icon(self.ERROR_ICON,
-                               self.ERROR_ICON_DESCRIPTION)
+        self._tray.change_icon(self.ERROR_ICON, self.ERROR_ICON_DESCRIPTION)
         self._update()
 
     def activate_toggle_app_visibility_menu_entry(self):
