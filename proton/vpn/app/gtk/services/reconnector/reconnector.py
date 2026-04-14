@@ -57,7 +57,7 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
 
     MAX_RETRY_COUNT = 10
     MAX_RETRY_DELAY_MS = 300_000
-    MIN_RETRY_DELAY_MS = 2_000
+    MIN_RETRY_DELAY_MS = 10_000
 
     # pylint: disable=too-many-arguments
     def __init__(
@@ -106,6 +106,7 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
 
     def disable(self):
         """Disables the auto reconnect feature."""
+        self._reset_retry_counter()
         self._vpn_monitor.disable()
         self._network_monitor.disable()
         self._session_monitor.disable()
