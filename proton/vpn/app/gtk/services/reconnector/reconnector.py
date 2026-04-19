@@ -153,6 +153,7 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
             f"{retry_delay / 1000:.2f} seconds."
         )
         self._retry_src_id = GLib.timeout_add(retry_delay, self._reconnect)
+        logger.debug(f"Reconnection timer set with ID {self._retry_src_id}.")
         return True
 
     @property
@@ -257,6 +258,7 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
 
     def _reconnect(self):
         logger.info(f"Reconnecting (attempt #{self.retry_counter})...")
+        logger.debug(f"Network up={self._network_monitor.is_network_up} session_unlocked={self._session_monitor.is_session_unlocked}")
         connection = self._vpn_connector.current_connection
 
         if not self._network_monitor.is_network_up:  # noqa: E501 # pylint: disable=line-too-long # nosemgrep: python.lang.maintainability.is-function-without-parentheses.is-function-without-parentheses
@@ -273,6 +275,7 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
 
         vpn_server = self._get_vpn_server(connection.server_id)
         if vpn_server:
+            logger.info(f"Submitting reconnection to {vpn_server.server_name} ({vpn_server.server_ip}).")
             future = self._executor.submit(
                 self._vpn_connector.connect,
                 vpn_server,
@@ -312,6 +315,7 @@ class VPNReconnector:  # pylint: disable=too-many-instance-attributes
 
     def _reset_retry_counter(self):
         if self._retry_src_id:
+            logger.debug(f"Removing pending reconnection timer {self._retry_src_id}.")
             GLib.source_remove(self._retry_src_id)
             self._retry_src_id = None
         self.retry_counter = 0
